@@ -30,4 +30,11 @@ public sealed class JobsSettings
     /// Defaults to 30 seconds.
     /// </summary>
     public TimeSpan RecurringCheckInterval { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// When greater than zero, the in-memory backend materializes recurring cron occurrences
+    /// into scheduled one-off jobs for the next N days (single-instance). When <c>0</c>,
+    /// keeps the legacy fire-when-due poll behaviour. Default: 7. Hangfire ignores this setting.
+    /// </summary>
+    public int MaterializeHorizonDays { get; set; } = 7;
 }

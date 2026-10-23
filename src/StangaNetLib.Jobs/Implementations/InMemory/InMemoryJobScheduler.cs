@@ -37,7 +37,53 @@ internal sealed class InMemoryJobScheduler : IJobScheduler
     }
 
     /// <inheritdoc/>
-    public async Task<Result<string>> EnqueueAsync<TJob, TArgs>(TArgs args, CancellationToken cancellationToken = default)
+    public Task<Result<string>> EnqueueAsync<TJob, TArgs>(TArgs args, CancellationToken cancellationToken = default)
+        where TJob : class, IBackgroundJob<TArgs>
+        => EnqueueCoreAsync<TJob, TArgs>(args, idempotencyKey: null, cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<Result<string>> EnqueueAsync<TJob, TArgs>(
+        TArgs args,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+        where TJob : class, IBackgroundJob<TArgs>
+    {
+        Guard.Against.NullOrWhiteSpace(idempotencyKey, nameof(idempotencyKey));
+        return EnqueueCoreAsync<TJob, TArgs>(args, idempotencyKey, cancellationToken);
+    }
+
+    private async Task<Result<string>> EnqueueCoreAsync<TJob, TArgs>(
+        TArgs args,
+        string? idempotencyKey,
+        CancellationToken cancellationToken)
+        where TJob : class, IBackgroundJob<TArgs>
+    {
+        if (idempotencyKey is not null && _keyedLock is not null)
+        {
+            await using var handle = await _keyedLock.AcquireAsync($"jobs:idem:{idempotencyKey}", cancellationToken)
+                .ConfigureAwait(false);
+            if (_store.TryGetIdempotentJobId(idempotencyKey, out var existing) && existing is not null)
+                return Result<string>.Success(existing);
+
+            var id = await CreateAndEnqueueAsync<TJob, TArgs>(args, cancellationToken).ConfigureAwait(false);
+            _store.TryAddIdempotentJobId(idempotencyKey, id);
+            return Result<string>.Success(id);
+        }
+
+        if (idempotencyKey is not null
+            && _store.TryGetIdempotentJobId(idempotencyKey, out var known)
+            && known is not null)
+        {
+            return Result<string>.Success(known);
+        }
+
+        var newId = await CreateAndEnqueueAsync<TJob, TArgs>(args, cancellationToken).ConfigureAwait(false);
+        if (idempotencyKey is not null)
+            _store.TryAddIdempotentJobId(idempotencyKey, newId);
+        return Result<string>.Success(newId);
+    }
+
+    private async Task<string> CreateAndEnqueueAsync<TJob, TArgs>(TArgs args, CancellationToken cancellationToken)
         where TJob : class, IBackgroundJob<TArgs>
     {
         var id = NewId();
@@ -52,23 +98,95 @@ internal sealed class InMemoryJobScheduler : IJobScheduler
                 return job.ExecuteAsync(args, ctx, ct);
             }
         });
-        await _store.EnqueueAsync(id, cancellationToken);
-        return Result<string>.Success(id);
+        await _store.EnqueueAsync(id, cancellationToken).ConfigureAwait(false);
+        return id;
     }
 
     /// <inheritdoc/>
-    public async Task<Result<string>> ScheduleAsync<TJob, TArgs>(TArgs args, TimeSpan delay, CancellationToken cancellationToken = default)
+    public Task<Result<string>> ScheduleAsync<TJob, TArgs>(TArgs args, TimeSpan delay, CancellationToken cancellationToken = default)
+        where TJob : class, IBackgroundJob<TArgs>
+        => ScheduleAsync<TJob, TArgs>(args, delay, idempotencyKey: null!, cancellationToken, hasKey: false);
+
+    /// <inheritdoc/>
+    public Task<Result<string>> ScheduleAsync<TJob, TArgs>(
+        TArgs args,
+        TimeSpan delay,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
         where TJob : class, IBackgroundJob<TArgs>
     {
-        // Return Result.Failure rather than throwing — callers expect Result pattern
+        Guard.Against.NullOrWhiteSpace(idempotencyKey, nameof(idempotencyKey));
+        return ScheduleAsync<TJob, TArgs>(args, delay, idempotencyKey, cancellationToken, hasKey: true);
+    }
+
+    private async Task<Result<string>> ScheduleAsync<TJob, TArgs>(
+        TArgs args,
+        TimeSpan delay,
+        string? idempotencyKey,
+        CancellationToken cancellationToken,
+        bool hasKey)
+        where TJob : class, IBackgroundJob<TArgs>
+    {
         if (delay < TimeSpan.Zero)
             return JobsErrors.InvalidDelay(delay);
 
-        return await ScheduleAtAsync<TJob, TArgs>(args, DateTimeOffset.UtcNow.Add(delay), cancellationToken);
+        return hasKey
+            ? await ScheduleAtAsync<TJob, TArgs>(args, DateTimeOffset.UtcNow.Add(delay), idempotencyKey!, cancellationToken)
+                .ConfigureAwait(false)
+            : await ScheduleAtAsync<TJob, TArgs>(args, DateTimeOffset.UtcNow.Add(delay), cancellationToken)
+                .ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
     public Task<Result<string>> ScheduleAtAsync<TJob, TArgs>(TArgs args, DateTimeOffset runAt, CancellationToken cancellationToken = default)
+        where TJob : class, IBackgroundJob<TArgs>
+        => ScheduleAtCoreAsync<TJob, TArgs>(args, runAt, idempotencyKey: null, cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<Result<string>> ScheduleAtAsync<TJob, TArgs>(
+        TArgs args,
+        DateTimeOffset runAt,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+        where TJob : class, IBackgroundJob<TArgs>
+    {
+        Guard.Against.NullOrWhiteSpace(idempotencyKey, nameof(idempotencyKey));
+        return ScheduleAtCoreAsync<TJob, TArgs>(args, runAt, idempotencyKey, cancellationToken);
+    }
+
+    private async Task<Result<string>> ScheduleAtCoreAsync<TJob, TArgs>(
+        TArgs args,
+        DateTimeOffset runAt,
+        string? idempotencyKey,
+        CancellationToken cancellationToken)
+        where TJob : class, IBackgroundJob<TArgs>
+    {
+        if (idempotencyKey is not null && _keyedLock is not null)
+        {
+            await using var handle = await _keyedLock.AcquireAsync($"jobs:idem:{idempotencyKey}", cancellationToken)
+                .ConfigureAwait(false);
+            if (_store.TryGetIdempotentJobId(idempotencyKey, out var existing) && existing is not null)
+                return Result<string>.Success(existing);
+
+            var id = ScheduleAtInternal<TJob, TArgs>(args, runAt);
+            _store.TryAddIdempotentJobId(idempotencyKey, id);
+            return Result<string>.Success(id);
+        }
+
+        if (idempotencyKey is not null
+            && _store.TryGetIdempotentJobId(idempotencyKey, out var known)
+            && known is not null)
+        {
+            return Result<string>.Success(known);
+        }
+
+        var newId = ScheduleAtInternal<TJob, TArgs>(args, runAt);
+        if (idempotencyKey is not null)
+            _store.TryAddIdempotentJobId(idempotencyKey, newId);
+        return Result<string>.Success(newId);
+    }
+
+    private string ScheduleAtInternal<TJob, TArgs>(TArgs args, DateTimeOffset runAt)
         where TJob : class, IBackgroundJob<TArgs>
     {
         var id = NewId();
@@ -89,8 +207,6 @@ internal sealed class InMemoryJobScheduler : IJobScheduler
         _store.AddJob(entry);
 
         var delay = scheduledAt - DateTimeOffset.UtcNow;
-        // Use CancellationToken.None for the delay itself — the request token should not cancel
-        // a job that has already been accepted. Explicit cancellation is handled via DeleteAsync.
         _ = Task.Run(async () =>
         {
             if (delay > TimeSpan.Zero)
@@ -102,7 +218,39 @@ internal sealed class InMemoryJobScheduler : IJobScheduler
             await _store.EnqueueAsync(id, CancellationToken.None);
         });
 
-        return Task.FromResult(Result<string>.Success(id));
+        return id;
+    }
+
+    /// <summary>
+    /// Materializes a recurring occurrence as a scheduled one-off job (used by the horizon processor).
+    /// </summary>
+    internal string MaterializeRecurringOccurrence(InMemoryRecurringJobEntry recurring, DateTimeOffset runAt)
+    {
+        var id = NewId();
+        var scheduledAt = runAt < DateTimeOffset.UtcNow ? DateTimeOffset.UtcNow : runAt;
+        var entry = new InMemoryJobEntry
+        {
+            Id = id,
+            JobType = recurring.JobType,
+            ScheduledAt = scheduledAt,
+            State = JobState.Scheduled,
+            Execute = (sp, ctx, ct) => recurring.Execute(sp, ct)
+        };
+        _store.AddJob(entry);
+
+        var delay = scheduledAt - DateTimeOffset.UtcNow;
+        _ = Task.Run(async () =>
+        {
+            if (delay > TimeSpan.Zero)
+                await Task.Delay(delay);
+
+            if (entry.State == JobState.Deleted) return;
+
+            entry.State = JobState.Enqueued;
+            await _store.EnqueueAsync(id, CancellationToken.None);
+        });
+
+        return id;
     }
 
     /// <inheritdoc/>

@@ -23,4 +23,9 @@ internal sealed class InMemoryRecurringJobEntry
 
     /// <summary>UTC time of the next scheduled execution, computed from the cron expression.</summary>
     public DateTimeOffset? NextRunAt { get; set; }
+
+    /// <summary>
+    /// UTC end of the already-materialized horizon window (when <c>MaterializeHorizonDays</c> &gt; 0).
+    /// </summary>
+    public DateTimeOffset? HorizonUntil { get; set; }
 }

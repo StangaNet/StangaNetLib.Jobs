@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.1.0] - 2026-10-23
+
+### Added
+- Idempotent enqueue/schedule overloads with keyed lock (`IKeyedLock`) on the in-memory backend.
+- `JobsSettings.MaterializeHorizonDays` — materialize cron occurrences into scheduled one-off jobs for the next N days (in-memory).
+
+### Notes
+- Hangfire ignores idempotency keys and horizon materialization (uses Hangfire storage scheduling).
+
 ## [1.0.1] - 2026-10-23
 
 ### Changed

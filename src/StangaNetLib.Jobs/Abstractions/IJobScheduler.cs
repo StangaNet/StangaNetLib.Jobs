@@ -19,6 +19,16 @@ public interface IJobScheduler
         where TJob : class, IBackgroundJob<TArgs>;
 
     /// <summary>
+    /// Enqueues a job with an idempotency key. Concurrent callers with the same key share one job id
+    /// when an <c>IKeyedLock</c> is registered; otherwise behaves like <see cref="EnqueueAsync{TJob,TArgs}(TArgs,CancellationToken)"/>.
+    /// </summary>
+    Task<Result<string>> EnqueueAsync<TJob, TArgs>(
+        TArgs args,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+        where TJob : class, IBackgroundJob<TArgs>;
+
+    /// <summary>
     /// Schedules a job to run after the specified delay.
     /// Returns <c>Jobs.InvalidDelay</c> if <paramref name="delay"/> is negative.
     /// </summary>
@@ -32,6 +42,16 @@ public interface IJobScheduler
         where TJob : class, IBackgroundJob<TArgs>;
 
     /// <summary>
+    /// Schedules a job after <paramref name="delay"/> with an idempotency key (see enqueue overload).
+    /// </summary>
+    Task<Result<string>> ScheduleAsync<TJob, TArgs>(
+        TArgs args,
+        TimeSpan delay,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+        where TJob : class, IBackgroundJob<TArgs>;
+
+    /// <summary>
     /// Schedules a job to run at a specific point in time.
     /// If <paramref name="runAt"/> is in the past, the job executes immediately.
     /// </summary>
@@ -42,6 +62,16 @@ public interface IJobScheduler
     /// <param name="cancellationToken">Token to cancel the schedule operation.</param>
     /// <returns>A successful <see cref="Result{T}"/> containing the job ID, or a failure.</returns>
     Task<Result<string>> ScheduleAtAsync<TJob, TArgs>(TArgs args, DateTimeOffset runAt, CancellationToken cancellationToken = default)
+        where TJob : class, IBackgroundJob<TArgs>;
+
+    /// <summary>
+    /// Schedules a job at <paramref name="runAt"/> with an idempotency key (see enqueue overload).
+    /// </summary>
+    Task<Result<string>> ScheduleAtAsync<TJob, TArgs>(
+        TArgs args,
+        DateTimeOffset runAt,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
         where TJob : class, IBackgroundJob<TArgs>;
 
     /// <summary>

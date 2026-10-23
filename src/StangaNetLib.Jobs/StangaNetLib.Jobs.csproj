@@ -3,7 +3,7 @@
     <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
     <AssemblyName>StangaNetLib.Jobs</AssemblyName>
     <RootNamespace>StangaNetLib.Jobs</RootNamespace>
-    <Version>1.0.1</Version>
+    <Version>1.1.0</Version>
     <Description>Background job infrastructure for recurring and scheduled jobs � in-memory backend and Hangfire adapter. Depends on StangaNetLib.Core and StangaNetLib.Concurrency.</Description>
     <PackageTags>background-jobs;scheduling;hangfire;recurring;stanganet</PackageTags>
   </PropertyGroup>

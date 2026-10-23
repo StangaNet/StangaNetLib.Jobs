@@ -40,6 +40,15 @@ internal sealed class HangfireJobScheduler : IJobScheduler
     }
 
     /// <inheritdoc/>
+    /// <remarks>Hangfire does not persist idempotency keys; this overload ignores the key.</remarks>
+    public Task<Result<string>> EnqueueAsync<TJob, TArgs>(
+        TArgs args,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+        where TJob : class, IBackgroundJob<TArgs>
+        => EnqueueAsync<TJob, TArgs>(args, cancellationToken);
+
+    /// <inheritdoc/>
     public Task<Result<string>> ScheduleAsync<TJob, TArgs>(TArgs args, TimeSpan delay, CancellationToken cancellationToken = default)
         where TJob : class, IBackgroundJob<TArgs>
     {
@@ -51,6 +60,16 @@ internal sealed class HangfireJobScheduler : IJobScheduler
     }
 
     /// <inheritdoc/>
+    /// <remarks>Hangfire does not persist idempotency keys; this overload ignores the key.</remarks>
+    public Task<Result<string>> ScheduleAsync<TJob, TArgs>(
+        TArgs args,
+        TimeSpan delay,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+        where TJob : class, IBackgroundJob<TArgs>
+        => ScheduleAsync<TJob, TArgs>(args, delay, cancellationToken);
+
+    /// <inheritdoc/>
     public Task<Result<string>> ScheduleAtAsync<TJob, TArgs>(TArgs args, DateTimeOffset runAt, CancellationToken cancellationToken = default)
         where TJob : class, IBackgroundJob<TArgs>
     {
@@ -58,6 +77,16 @@ internal sealed class HangfireJobScheduler : IJobScheduler
         var id = _client.Schedule<HangfireJobRunner<TJob, TArgs>>(r => r.RunAsync(args, null!), effectiveRunAt);
         return Task.FromResult(Result<string>.Success(id));
     }
+
+    /// <inheritdoc/>
+    /// <remarks>Hangfire does not persist idempotency keys; this overload ignores the key.</remarks>
+    public Task<Result<string>> ScheduleAtAsync<TJob, TArgs>(
+        TArgs args,
+        DateTimeOffset runAt,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+        where TJob : class, IBackgroundJob<TArgs>
+        => ScheduleAtAsync<TJob, TArgs>(args, runAt, cancellationToken);
 
     /// <inheritdoc/>
     public Result AddOrUpdateRecurring<TJob, TArgs>(string jobId, TArgs args, string cronExpression)

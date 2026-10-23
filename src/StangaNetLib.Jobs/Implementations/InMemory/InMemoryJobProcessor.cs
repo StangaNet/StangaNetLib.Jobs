@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using StangaNetLib.Concurrency.Locking;
 using StangaNetLib.Jobs.Models;
 using StangaNetLib.Jobs.Settings;
 
@@ -16,9 +17,11 @@ namespace StangaNetLib.Jobs.Implementations.InMemory;
 internal sealed class InMemoryJobProcessor : BackgroundService
 {
     private readonly InMemoryJobStore _store;
+    private readonly InMemoryJobScheduler _scheduler;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IOptions<JobsSettings> _options;
     private readonly ILogger<InMemoryJobProcessor> _logger;
+    private readonly IKeyedLock? _keyedLock;
 
     // Tracks recurring jobs currently executing to prevent overlapping runs
     private readonly ConcurrentDictionary<string, byte> _runningRecurring = new();
@@ -26,20 +29,20 @@ internal sealed class InMemoryJobProcessor : BackgroundService
     /// <summary>
     /// Initialises the processor with its required dependencies.
     /// </summary>
-    /// <param name="store">The shared in-memory job store.</param>
-    /// <param name="scopeFactory">Factory used to create a new DI scope per job execution.</param>
-    /// <param name="options">Bound settings controlling retry behaviour and worker count.</param>
-    /// <param name="logger">Logger for job lifecycle events.</param>
     public InMemoryJobProcessor(
         InMemoryJobStore store,
+        InMemoryJobScheduler scheduler,
         IServiceScopeFactory scopeFactory,
         IOptions<JobsSettings> options,
-        ILogger<InMemoryJobProcessor> logger)
+        ILogger<InMemoryJobProcessor> logger,
+        IKeyedLock? keyedLock = null)
     {
         _store = store;
+        _scheduler = scheduler;
         _scopeFactory = scopeFactory;
         _options = options;
         _logger = logger;
+        _keyedLock = keyedLock;
     }
 
     /// <inheritdoc/>
@@ -123,8 +126,8 @@ internal sealed class InMemoryJobProcessor : BackgroundService
     }
 
     /// <summary>
-    /// Periodically scans all recurring jobs and fires any that are due.
-    /// Uses <see cref="JobsSettings.RecurringCheckInterval"/> as the polling period.
+    /// Periodically scans all recurring jobs and either fires due jobs or materializes
+    /// occurrences within <see cref="JobsSettings.MaterializeHorizonDays"/>.
     /// </summary>
     private async Task ProcessRecurringAsync(CancellationToken ct)
     {
@@ -134,11 +137,18 @@ internal sealed class InMemoryJobProcessor : BackgroundService
         while (!ct.IsCancellationRequested && await timer.WaitForNextTickAsync(ct))
         {
             var now = DateTimeOffset.UtcNow;
+            var horizonDays = _options.Value.MaterializeHorizonDays;
+
             foreach (var recurring in _store.GetAllRecurring())
             {
+                if (horizonDays > 0)
+                {
+                    await MaterializeHorizonAsync(recurring, now, horizonDays, ct).ConfigureAwait(false);
+                    continue;
+                }
+
                 if (recurring.NextRunAt.HasValue && recurring.NextRunAt.Value <= now)
                 {
-                    // Skip if this recurring job is still executing from a previous tick
                     if (_runningRecurring.TryAdd(recurring.Id, 0))
                     {
                         recurring.LastExecutedAt = now;
@@ -151,6 +161,52 @@ internal sealed class InMemoryJobProcessor : BackgroundService
                     }
                 }
             }
+        }
+    }
+
+    private async Task MaterializeHorizonAsync(
+        InMemoryRecurringJobEntry recurring,
+        DateTimeOffset now,
+        int horizonDays,
+        CancellationToken ct)
+    {
+        IAsyncDisposable? lockHandle = null;
+        if (_keyedLock is not null)
+            lockHandle = await _keyedLock.AcquireAsync($"jobs:recur:{recurring.Id}", ct).ConfigureAwait(false);
+
+        try
+        {
+            var horizonEnd = now.AddDays(horizonDays);
+            if (recurring.HorizonUntil is { } until && until >= horizonEnd)
+                return;
+
+            var cursor = recurring.HorizonUntil ?? now;
+            if (cursor < now)
+                cursor = now;
+
+            try
+            {
+                var cron = CronExpression.Parse(recurring.CronExpression, CronFormat.Standard);
+                var next = cron.GetNextOccurrence(cursor, TimeZoneInfo.Utc);
+                while (next.HasValue && next.Value <= horizonEnd)
+                {
+                    _scheduler.MaterializeRecurringOccurrence(recurring, next.Value);
+                    cursor = next.Value;
+                    next = cron.GetNextOccurrence(cursor, TimeZoneInfo.Utc);
+                }
+
+                recurring.HorizonUntil = horizonEnd;
+                recurring.NextRunAt = next;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to materialize horizon for recurring job {JobId}", recurring.Id);
+            }
+        }
+        finally
+        {
+            if (lockHandle is not null)
+                await lockHandle.DisposeAsync().ConfigureAwait(false);
         }
     }
 

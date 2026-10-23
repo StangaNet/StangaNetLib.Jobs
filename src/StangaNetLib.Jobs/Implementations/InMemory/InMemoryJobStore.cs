@@ -12,6 +12,7 @@ internal sealed class InMemoryJobStore
 {
     private readonly ConcurrentDictionary<string, InMemoryJobEntry> _jobs = new();
     private readonly ConcurrentDictionary<string, InMemoryRecurringJobEntry> _recurring = new();
+    private readonly ConcurrentDictionary<string, string> _idempotencyIndex = new(StringComparer.Ordinal);
     private readonly Channel<string> _queue = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
     {
         SingleReader = false,
@@ -56,4 +57,12 @@ internal sealed class InMemoryJobStore
     /// <summary>Returns a point-in-time snapshot of all recurring job entries.</summary>
     public IReadOnlyCollection<InMemoryRecurringJobEntry> GetAllRecurring()
         => _recurring.Values.ToList().AsReadOnly();
+
+    /// <summary>Tries to get an existing job id for an idempotency key.</summary>
+    public bool TryGetIdempotentJobId(string idempotencyKey, out string? jobId)
+        => _idempotencyIndex.TryGetValue(idempotencyKey, out jobId);
+
+    /// <summary>Indexes <paramref name="jobId"/> under <paramref name="idempotencyKey"/> if absent.</summary>
+    public bool TryAddIdempotentJobId(string idempotencyKey, string jobId)
+        => _idempotencyIndex.TryAdd(idempotencyKey, jobId);
 }

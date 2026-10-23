@@ -63,6 +63,7 @@ public sealed class InMemoryJobSchedulerTests
         var options = Options.Create(new JobsSettings { WorkerCount = 1 });
         var processor = new InMemoryJobProcessor(
             store,
+            scheduler,
             sp.GetRequiredService<IServiceScopeFactory>(),
             options,
             NullLogger<InMemoryJobProcessor>.Instance);

@@ -106,10 +106,11 @@ public static class ServiceCollectionExtensions
     {
         services.AddSingleton<IValidateOptions<JobsSettings>, JobsSettingsValidator>();
         services.TryAddSingleton<InMemoryJobStore>();
-        services.TryAddSingleton<IJobScheduler>(sp =>
+        services.TryAddSingleton(sp =>
             new InMemoryJobScheduler(
                 sp.GetRequiredService<InMemoryJobStore>(),
                 sp.GetService<IKeyedLock>()));
+        services.TryAddSingleton<IJobScheduler>(sp => sp.GetRequiredService<InMemoryJobScheduler>());
         services.TryAddSingleton<IJobManager, InMemoryJobManager>();
         services.AddHostedService<InMemoryJobProcessor>();
         return services;
