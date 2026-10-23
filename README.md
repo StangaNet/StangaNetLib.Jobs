@@ -1,7 +1,7 @@
 # StangaNetLib.Jobs
 
 [![.NET CI](https://github.com/StangaNet/StangaNetLib.Jobs/actions/workflows/main.yml/badge.svg)](https://github.com/StangaNet/StangaNetLib.Jobs/actions/workflows/main.yml)
-![NuGet](https://img.shields.io/badge/nuget-1.0.0-blue)
+![NuGet](https://img.shields.io/badge/nuget-1.0.1-blue)
 ![.NET](https://img.shields.io/badge/.NET-8.0%20%7C%209.0%20%7C%2010.0-512BD4)
 
 Background jobs — fire-and-forget, delayed, and cron recurring — with a built-in in-memory backend and a Hangfire adapter. Uses `Result` / `Guard` from [`StangaNetLib.Core`](https://github.com/StangaNet/StangaNetLib.Core) and optional keyed locks from [`StangaNetLib.Concurrency`](https://github.com/StangaNet/StangaNetLib.Concurrency).
